@@ -1,0 +1,9 @@
+{
+  "alarm_time": "07:00",
+  "days": ["月", "火", "水", "木", "金"],
+  "skip_today": false,
+  "enabled": true,
+  "tare_offset": 0,
+  "in_bed_threshold": 10000,
+  "consecutive_samples": 5
+}
