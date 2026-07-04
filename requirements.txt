@@ -1,0 +1,13 @@
+blinker==1.9.0
+click==8.4.1
+colorzero==2.0
+Flask==3.1.3
+gpiozero==2.0.1
+itsdangerous==2.2.0
+Jinja2==3.1.6
+lgpio==0.2.2.0
+MarkupSafe==3.0.3
+rpi-lgpio==0.6
+sensor==6
+setuptools==82.0.1
+Werkzeug==3.1.8

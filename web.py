@@ -120,6 +120,6 @@ if __name__ == "__main__":
     t = threading.Thread(target=alarm_loop, daemon=True)
     t.start()
     try:
-        app.run(host="0.0.0.0", port=5000, debug=False)
+        app.run(host="0.0.0.0", port=80, debug=False)
     finally:
         sensor.stop()

@@ -36,11 +36,11 @@ GentleWake は、ベッド在床検知を利用したインテリジェント起
 
 ロードセル → HX711 → Raspberry Pi 4 → Python → ログ保存
 
-## GentleWake v2
+## GentleWake v2　(2026/7)
 
 ロードセル → HX711 → Raspberry Pi 4 → 在床判定 → Echo Flex
 
-## GentleWake v3
+## GentleWake v3　将来
 
 ロードセル → HX711 → Raspberry Pi 4 → MQTT → Home Assistant → Echo Flex
 
@@ -62,13 +62,52 @@ https://www.amazon.co.jp/dp/B089LS556S
 
 ### Raspberry Pi 4
 
-## 将来の運用機
+## 運用機 
 
-### Raspberry Pi Zero 2 W
+### Raspberry Pi Zero W 初代
 
 ---
 
-# Home Assistant連携
+# デバイスの準備
+
+## mDNS エイリアス (`wake.local`)
+
+hostname は変えずに `wake.local` でもアクセスできるようにする。avahi-publish を systemd で常駐させる方式。
+
+```bash
+sudo apt update && sudo apt install -y avahi-utils
+sudo nano /etc/systemd/system/avahi-alias@.service
+```
+
+サービスファイル内容：
+
+```ini
+[Unit]
+Description=Publish %I as alias for %H.local via mdns
+After=network.target avahi-daemon.service
+Requires=avahi-daemon.service
+
+[Service]
+Type=simple
+ExecStart=/bin/bash -c "/usr/bin/avahi-publish -a -R %I $(avahi-resolve -4 -n $(hostname).local | cut -f 2)"
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+有効化：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now avahi-alias@wake.local.service
+```
+
+Mac から `ping wake.local` で確認。元の hostname も引き続き使える。
+
+---
+
+# Home Assistant連携　将来
 
 ## 導入目的
 
@@ -175,16 +214,16 @@ GentleWakeは単なる目覚まし時計ではない。
 
 ### 概要
 
-HX711はロードセル（ひずみゲージ）用の24bitアナログ-デジタルコンバータ（ADC）である。
+HX711はロードセル（ひずみゲージ）用の24bitアナログ-デジタルコンバータ（ADC）である。（結構タイミングが微妙！）
 Raspberry PiのGPIOと接続し、シリアル通信でデータを取得する。
 
 ### 装置
 
-raszero2w
+wake
 
 ### 接続
 
-ssh kunieda@raszero2w.local
+ssh kunieda@wake.local
 
 ### 配線
 
