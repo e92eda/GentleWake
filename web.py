@@ -21,6 +21,14 @@ last_skipped_date = None  # 離床でスキップした日 (二重ログ防止)
 
 sensor = SensorMonitor(CONFIG_FILE)
 
+# アラーム自動停止
+ALARM_MAX_MINUTES = 30
+ALARM_WATCHDOG_INTERVAL_S = 2
+_alarm_lock = threading.Lock()
+_alarm_active = False
+_alarm_started_at = None
+_alarm_was_in_bed = False
+
 
 def load_config():
     with open(CONFIG_FILE) as f:
@@ -72,12 +80,73 @@ def tare():
     return jsonify({"ok": True, "tare_offset": offset})
 
 
+@app.route("/test-alarm", methods=["POST"])
+def test_alarm():
+    threading.Thread(target=trigger_alarm, daemon=True).start()
+    return jsonify({"ok": True})
+
+
+@app.route("/stop-alarm", methods=["POST"])
+def stop_alarm():
+    threading.Thread(target=stop_music, daemon=True).start()
+    return jsonify({"ok": True})
+
+
+def _mark_alarm_started():
+    global _alarm_active, _alarm_started_at, _alarm_was_in_bed
+    with _alarm_lock:
+        _alarm_active = True
+        _alarm_started_at = time.time()
+        _alarm_was_in_bed = sensor.is_in_bed()
+
+
+def _mark_alarm_stopped():
+    global _alarm_active, _alarm_started_at, _alarm_was_in_bed
+    with _alarm_lock:
+        _alarm_active = False
+        _alarm_started_at = None
+        _alarm_was_in_bed = False
+
+
 def trigger_alarm():
+    _mark_alarm_started()
     subprocess.run([
         ALEXA_SCRIPT,
         "-d", ALEXA_DEVICE,
-        "-e", "music:ゆったりクラシック:AMAZON_MUSIC"
+        "-e", "textcommand:Play bolero by Maurice Ravel"
     ])
+
+
+def stop_music():
+    _mark_alarm_stopped()
+    subprocess.run([
+        ALEXA_SCRIPT,
+        "-d", ALEXA_DEVICE,
+        "-e", "textcommand:stop"
+    ])
+
+
+def alarm_watchdog_loop():
+    """アラーム稼働中に離床 or 30分経過を検知して自動停止する。"""
+    while True:
+        try:
+            with _alarm_lock:
+                active = _alarm_active
+                started_at = _alarm_started_at
+                was_in_bed = _alarm_was_in_bed
+            if active and started_at is not None:
+                elapsed_min = (time.time() - started_at) / 60
+                reason = None
+                if elapsed_min >= ALARM_MAX_MINUTES:
+                    reason = f"{ALARM_MAX_MINUTES}分経過"
+                elif was_in_bed and not sensor.is_in_bed():
+                    reason = "離床検知"
+                if reason:
+                    print(f"[watchdog] 自動停止 ({reason})")
+                    stop_music()
+        except Exception as e:
+            print(f"watchdog エラー: {e}")
+        time.sleep(ALARM_WATCHDOG_INTERVAL_S)
 
 
 def alarm_loop():
@@ -117,8 +186,8 @@ def alarm_loop():
 
 if __name__ == "__main__":
     sensor.start()
-    t = threading.Thread(target=alarm_loop, daemon=True)
-    t.start()
+    threading.Thread(target=alarm_loop, daemon=True).start()
+    threading.Thread(target=alarm_watchdog_loop, daemon=True).start()
     try:
         app.run(host="0.0.0.0", port=80, debug=False)
     finally:

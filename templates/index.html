@@ -136,6 +136,9 @@
     button.action.secondary {
       background: #6c757d;
     }
+    button.action.stop {
+      background: #e07b4a;
+    }
     button[type="submit"]:active, button.action:active { opacity: 0.85; }
     .saved-msg {
       text-align: center;
@@ -273,6 +276,16 @@
     </form>
   </div>
 
+  <!-- アラームテスト -->
+  <div class="card">
+    <h2>🔔 アラームテスト</h2>
+    <div class="toggle-sub" style="margin-bottom: 12px;">
+      在床判定を無視して、今すぐアラーム (Echo で音楽再生) を鳴らします。
+    </div>
+    <button type="button" class="action secondary" id="test-alarm-btn">▶ 今すぐ鳴らす</button>
+    <div id="test-alarm-msg" class="small-msg"></div>
+  </div>
+
 </div>
 
 <script>
@@ -302,6 +315,44 @@
       // 通信失敗時はそのまま
     }
   }
+
+  let alarmPlaying = false;
+  const alarmBtn = document.getElementById('test-alarm-btn');
+
+  function setAlarmBtnState(playing) {
+    alarmPlaying = playing;
+    if (playing) {
+      alarmBtn.textContent = '■ 停止';
+      alarmBtn.classList.remove('secondary');
+      alarmBtn.classList.add('stop');
+    } else {
+      alarmBtn.textContent = '▶ 今すぐ鳴らす';
+      alarmBtn.classList.remove('stop');
+      alarmBtn.classList.add('secondary');
+    }
+  }
+
+  alarmBtn.addEventListener('click', async () => {
+    const msg = document.getElementById('test-alarm-msg');
+    const endpoint = alarmPlaying ? '/stop-alarm' : '/test-alarm';
+    const nextState = !alarmPlaying;
+    msg.textContent = '...';
+    try {
+      const r = await fetch(endpoint, { method: 'POST' });
+      const j = await r.json();
+      if (j.ok) {
+        setAlarmBtnState(nextState);
+        msg.textContent = nextState ? '✓ アラーム送信 (数秒後に鳴ります)' : '✓ 停止コマンド送信';
+        msg.style.color = '#4caf50';
+      } else {
+        msg.textContent = `✗ ${j.error || '失敗'}`;
+        msg.style.color = '#dc3545';
+      }
+    } catch (e) {
+      msg.textContent = '✗ 通信失敗';
+      msg.style.color = '#dc3545';
+    }
+  });
 
   document.getElementById('tare-btn').addEventListener('click', async () => {
     const msg = document.getElementById('tare-msg');
