@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GentleWake 詳細設定</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, sans-serif;
+      background: #f0f4f8;
+      display: flex;
+      justify-content: center;
+      padding: 24px 16px;
+    }
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+      margin-bottom: 16px;
+    }
+    h1 {
+      font-size: 20px;
+      color: #1a1a2e;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    h2 {
+      font-size: 16px;
+      color: #1a1a2e;
+      margin-bottom: 16px;
+    }
+    .back-link {
+      color: #4a90e2;
+      text-decoration: none;
+      font-size: 14px;
+      display: inline-block;
+      margin-bottom: 16px;
+    }
+    .section { margin-bottom: 24px; }
+    label.section-label {
+      display: block;
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 8px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    input[type="number"] {
+      width: 100%;
+      font-size: 18px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 10px;
+      color: #1a1a2e;
+      outline: none;
+    }
+    input[type="number"]:focus { border-color: #4a90e2; }
+    .toggle-sub { font-size: 12px; color: #999; margin-top: 6px; }
+
+    button[type="submit"], button.action {
+      width: 100%;
+      padding: 14px;
+      background: #4a90e2;
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: background 0.15s;
+    }
+    button.action.secondary { background: #6c757d; }
+    button.action.stop { background: #e07b4a; }
+    button[type="submit"]:active, button.action:active { opacity: 0.85; }
+    .saved-msg { text-align: center; color: #4caf50; font-size: 14px; margin-top: 12px; }
+
+    /* センサー状態 */
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      font-size: 14px;
+    }
+    .status-row .label { color: #666; }
+    .status-row .value { font-family: monospace; font-weight: 600; color: #1a1a2e; }
+    .bed-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      border-radius: 12px;
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      transition: background 0.3s;
+    }
+    .bed-indicator.in-bed { background: #d4edda; color: #155724; }
+    .bed-indicator.out-bed { background: #f8d7da; color: #721c24; }
+    .bed-indicator.unknown { background: #e9ecef; color: #6c757d; }
+    .small-msg { font-size: 12px; color: #999; margin-top: 8px; text-align: center; }
+  </style>
+</head>
+<body>
+<div style="width: 100%; max-width: 400px;">
+
+  <a href="/" class="back-link">← 戻る</a>
+
+  <!-- 閾値・デバウンス -->
+  <div class="card">
+    <h1>⚙️ 判定設定</h1>
+    <form method="post" action="/save-sensor">
+
+      <div class="section">
+        <label class="section-label">在床判定 閾値 (raw - tare)</label>
+        <input type="number" name="in_bed_threshold" min="1" step="100"
+               value="{{ config.in_bed_threshold }}">
+        <div class="toggle-sub">
+          tared 値がこの値を超えたら「載っている」と判定します。
+        </div>
+      </div>
+
+      <div class="section">
+        <label class="section-label">デバウンス (連続サンプル数)</label>
+        <input type="number" name="consecutive_samples" min="1" max="30" step="1"
+               value="{{ config.consecutive_samples }}">
+        <div class="toggle-sub">
+          状態が変わったと判定するのに必要な連続一致サンプル数。
+        </div>
+      </div>
+
+      <button type="submit">判定設定を保存</button>
+      {% if saved %}
+      <div class="saved-msg">✓ 保存しました</div>
+      {% endif %}
+    </form>
+  </div>
+
+  <!-- センサ詳細 -->
+  <div class="card">
+    <h2>📡 センサー状態</h2>
+    <div id="bed-indicator" class="bed-indicator unknown">取得中...</div>
+    <div class="status-row"><span class="label">raw</span><span id="val-raw" class="value">-</span></div>
+    <div class="status-row"><span class="label">tared</span><span id="val-tared" class="value">-</span></div>
+    <div class="status-row"><span class="label">tare offset</span><span id="val-offset" class="value">-</span></div>
+    <div class="status-row"><span class="label">閾値</span><span id="val-threshold" class="value">-</span></div>
+    <button type="button" class="action secondary" id="tare-btn" style="margin-top: 12px;">⚖️ 風袋引き (今この瞬間の値を 0 にする)</button>
+    <div id="tare-msg" class="small-msg"></div>
+  </div>
+
+  <!-- アラームテスト -->
+  <div class="card">
+    <h2>🔔 アラームテスト</h2>
+    <div class="toggle-sub" style="margin-bottom: 12px;">
+      在床判定を無視して、今すぐアラーム (Echo で音楽再生) を鳴らします。
+    </div>
+    <button type="button" class="action secondary" id="test-alarm-btn">▶ 今すぐ鳴らす</button>
+    <div id="test-alarm-msg" class="small-msg"></div>
+  </div>
+
+</div>
+
+<script>
+  async function refreshState() {
+    try {
+      const r = await fetch('/state');
+      const s = await r.json();
+      const indicator = document.getElementById('bed-indicator');
+      if (!s.available) {
+        indicator.className = 'bed-indicator unknown';
+        indicator.textContent = '⚠️ センサ未接続 (モック)';
+      } else if (s.raw === null) {
+        indicator.className = 'bed-indicator unknown';
+        indicator.textContent = '取得中...';
+      } else if (s.in_bed) {
+        indicator.className = 'bed-indicator in-bed';
+        indicator.textContent = '🛏️ 在床中';
+      } else {
+        indicator.className = 'bed-indicator out-bed';
+        indicator.textContent = '🚶 離床中';
+      }
+      document.getElementById('val-raw').textContent = s.raw ?? '-';
+      document.getElementById('val-tared').textContent = s.tared ?? '-';
+      document.getElementById('val-offset').textContent = s.tare_offset;
+      document.getElementById('val-threshold').textContent = s.threshold;
+    } catch (e) { /* 通信失敗はスキップ */ }
+  }
+
+  let alarmPlaying = false;
+  const alarmBtn = document.getElementById('test-alarm-btn');
+  function setAlarmBtnState(playing) {
+    alarmPlaying = playing;
+    if (playing) {
+      alarmBtn.textContent = '■ 停止';
+      alarmBtn.classList.remove('secondary');
+      alarmBtn.classList.add('stop');
+    } else {
+      alarmBtn.textContent = '▶ 今すぐ鳴らす';
+      alarmBtn.classList.remove('stop');
+      alarmBtn.classList.add('secondary');
+    }
+  }
+  alarmBtn.addEventListener('click', async () => {
+    const msg = document.getElementById('test-alarm-msg');
+    const endpoint = alarmPlaying ? '/stop-alarm' : '/test-alarm';
+    const nextState = !alarmPlaying;
+    msg.textContent = '...';
+    try {
+      const r = await fetch(endpoint, { method: 'POST' });
+      const j = await r.json();
+      if (j.ok) {
+        setAlarmBtnState(nextState);
+        msg.textContent = nextState ? '✓ アラーム送信 (数秒後に鳴ります)' : '✓ 停止コマンド送信';
+        msg.style.color = '#4caf50';
+      } else {
+        msg.textContent = `✗ ${j.error || '失敗'}`;
+        msg.style.color = '#dc3545';
+      }
+    } catch (e) {
+      msg.textContent = '✗ 通信失敗';
+      msg.style.color = '#dc3545';
+    }
+  });
+
+  document.getElementById('tare-btn').addEventListener('click', async () => {
+    const msg = document.getElementById('tare-msg');
+    msg.textContent = '...';
+    try {
+      const r = await fetch('/tare', { method: 'POST' });
+      const j = await r.json();
+      if (j.ok) {
+        msg.textContent = `✓ tare = ${j.tare_offset}`;
+        msg.style.color = '#4caf50';
+      } else {
+        msg.textContent = `✗ ${j.error}`;
+        msg.style.color = '#dc3545';
+      }
+      refreshState();
+    } catch (e) {
+      msg.textContent = '✗ 通信失敗';
+      msg.style.color = '#dc3545';
+    }
+  });
+
+  refreshState();
+  setInterval(refreshState, 1500);
+</script>
+
+</body>
+</html>

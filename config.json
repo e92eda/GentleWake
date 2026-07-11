@@ -1,9 +1,37 @@
 {
-  "alarm_time": "07:00",
-  "days": ["月", "火", "水", "木", "金"],
   "skip_today": false,
   "enabled": true,
   "tare_offset": 0,
-  "in_bed_threshold": 10000,
-  "consecutive_samples": 5
+  "in_bed_threshold": 200001,
+  "consecutive_samples": 5,
+  "schedule": {
+    "月": {
+      "enabled": true,
+      "time": "06:45"
+    },
+    "火": {
+      "enabled": true,
+      "time": "06:45"
+    },
+    "水": {
+      "enabled": true,
+      "time": "06:30"
+    },
+    "木": {
+      "enabled": false,
+      "time": "07:00"
+    },
+    "金": {
+      "enabled": true,
+      "time": "07:15"
+    },
+    "土": {
+      "enabled": false,
+      "time": "07:00"
+    },
+    "日": {
+      "enabled": false,
+      "time": "07:00"
+    }
+  }
 }

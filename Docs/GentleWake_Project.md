@@ -278,12 +278,12 @@ ssh kunieda@wake.local
 from sensor import SensorMonitor
 
 # config.json から tare_offset / 閾値 / 連続サンプル数を読む
-monitor = SensorMonitor(config_path="config.json")
+monitor = SensorMonitor(config_path="../config.json")
 monitor.start()  # バックグラウンドスレッドで読み続ける
 
 # どこからでも在床状態を取れる
 if monitor.is_in_bed():
-    print("在床中")
+  print("在床中")
 
 # 風袋引き (現在の raw を offset にする)
 monitor.tare_now()  # config.json に永続化される
@@ -420,3 +420,37 @@ export ALEXA_TLD="com"
   - `web.py` 改修: センサスレッド統合、`/state` と `/tare` ルート追加、アラームを在床時のみ発火に変更
   - `templates/index.html` 改修: 在床状態リアルタイム表示、風袋引きボタン、閾値・連続サンプル数の設定UI
   - `config.json` 拡張: `tare_offset`, `in_bed_threshold`, `consecutive_samples` を追加
+
+## 2026-07-05
+
+- 30-40分毎のサイレントリブート多発。触ると落ちる症状 → 基板が押されないよう補強して 8h+ 安定
+- 半田クラック or 機械的接触不良と推定
+
+## 2026-07-09
+
+- 6:45 アラーム不発事件。分析結果:
+  - **アラームロジックは正常発火** (`[06:45] アラーム発動 (在床確認)` あり)
+  - Echo Flex に指令が届かず。cookie 期限切れ + `/api/customer-status HTTP/000`
+  - 根本原因は **WiFi ハング**: 07-09 02:53:38 に wlan0 が切断、`brcmf_cfg80211_scan: Scanning suppressed: status (4)` でドライバ (brcmfmac) がビジー状態のまま 16時間半沈黙
+  - 電波弱 (-82 dBm) + WiFi Power Save ON が組合わさると起きる Pi Zero 2 W の既知パターン
+- 対策として以下を Pi 側に導入:
+  - **WiFi powersave 無効化**: `/etc/NetworkManager/conf.d/wifi-powersave-off.conf` に `wifi.powersave = 2`
+  - **WiFi watchdog** (`/usr/local/sbin/wifi-watchdog.sh` + `wifi-watchdog.timer` 2分毎): gateway ping 失敗の段階的復旧 (link bounce → NM restart → brcmfmac reload → reboot)
+  - **WiFi selector** (`/usr/local/sbin/wifi-selector.sh` + `wifi-selector.timer` 5分毎): NM に登録済みの複数 SSID から一番強い電波の AP に自動切替 (ヒステリシス 8dB)
+- Pi Zero 2 W は **2.4GHz オンリー** で 5GHz 非対応 (BCM43436 相当)。改善は電波環境の改善か有線化のみ。
+
+## 2026-07-10 - 2026-07-11 (wake.py = 新UI版の追加)
+
+- **新エントリーポイント `wake.py` を追加** (既存 `web.py` はそのまま並存)
+- **config schema 変更**: 旧 `alarm_time` + `days[]` → 新 `schedule: {"月":{"enabled":bool,"time":"HH:MM"}, ...}` (曜日ごとに時刻を持たせる)。`_migrate_schedule()` で旧形式から自動移行
+- UI (`templates/wake.html`):
+  - 元の見た目 (大きい time input + 7 曜日チップ) を維持
+  - 曜日チップ: **短タップで on/off**、**長押し (0.5秒) でその曜日の時刻編集モード** に入る (上の time input が edit-mode = 白背景・編集可、対象チップに黄ハイライト)
+  - 上の time input は通常 display-mode (グレー背景・編集不可) で **次のアラーム時刻を表示** (今日/明日/日付+曜日ラベル付き)
+  - 在床/離床は h1 直下にコンパクトな pill 表示 (🛏️/🚶)
+- 詳細設定サブページ (`templates/wake_settings.html` + `/settings` ルート):
+  - 在床判定閾値、デバウンス連続サンプル数
+  - センサ raw/tared/offset/threshold 表示、風袋引きボタン
+  - アラームテスト
+- ルート分割: `POST /save` (曜日スケジュール系) と `POST /save-sensor` (閾値・デバウンス系) に分離
+- 次のアラーム計算: `compute_next_alarm(config, now)` が今から 7 日先までで最初にヒットする有効曜日+時刻を返す。今日既に過ぎている / `skip_today` の場合は翌日以降を探す

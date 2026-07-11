@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GentleWake</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, sans-serif;
+      background: #f0f4f8;
+      display: flex;
+      justify-content: center;
+      padding: 24px 16px;
+    }
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 28px 24px;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+      margin-bottom: 16px;
+    }
+    h1 {
+      font-size: 22px;
+      color: #1a1a2e;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    .section { margin-bottom: 24px; }
+    label.section-label {
+      display: block;
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 8px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* 起床時刻 (display+edit 兼用の 1 つの time input) - 元のデザイン */
+    input[type="time"].top-time {
+      width: 100%;
+      font-size: 36px;
+      font-weight: 300;
+      text-align: center;
+      border: 2px solid #e0e0e0;
+      border-radius: 12px;
+      padding: 12px;
+      color: #1a1a2e;
+      outline: none;
+      background: white;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    /* display モード = 少しトーンを落として編集不可 */
+    input[type="time"].top-time.display-mode {
+      background: #fafbfc;
+      pointer-events: none;
+    }
+    /* edit モード = 白バック + 強調ボーダー */
+    input[type="time"].top-time.edit-mode {
+      background: white;
+      border-color: #4a90e2;
+    }
+    .time-caption {
+      font-size: 12px;
+      color: #999;
+      margin-top: 8px;
+      text-align: center;
+      min-height: 18px;
+    }
+    .time-caption.editing {
+      color: #4a90e2;
+      font-weight: 600;
+    }
+    .time-caption .done-btn {
+      background: #4a90e2;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      margin-left: 6px;
+    }
+
+    /* 曜日チップ = 元のチップデザインをそのまま。ただし button 化して JS で挙動を細分化 */
+    .days {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 6px;
+    }
+    .day-chip {
+      display: block;
+      width: 100%;
+      text-align: center;
+      padding: 10px 0;
+      border-radius: 8px;
+      border: 2px solid #e0e0e0;
+      background: white;
+      font-size: 14px;
+      color: #555;
+      cursor: pointer;
+      transition: all 0.15s;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+    }
+    .day-chip.on {
+      background: #4a90e2;
+      border-color: #4a90e2;
+      color: white;
+      font-weight: 600;
+    }
+    .day-chip.editing {
+      box-shadow: 0 0 0 3px #ffc94a;
+    }
+    .day-chip.pressing {
+      transform: scale(0.94);
+    }
+    .day-hint {
+      font-size: 11px;
+      color: #b0b0b0;
+      text-align: center;
+      margin-top: 8px;
+    }
+
+    /* 汎用トグル (アラーム有効, 今日はスキップ) - 元と同じ */
+    .toggle-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 0;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .toggle-row:last-child { border-bottom: none; }
+    .toggle-label { font-size: 15px; color: #333; }
+    .toggle-sub { font-size: 12px; color: #999; margin-top: 2px; }
+    .switch { position: relative; width: 48px; height: 28px; }
+    .switch input { display: none; }
+    .slider {
+      position: absolute; inset: 0;
+      background: #ccc; border-radius: 28px;
+      cursor: pointer; transition: 0.2s;
+    }
+    .slider:before {
+      content: ""; position: absolute;
+      width: 22px; height: 22px; left: 3px; top: 3px;
+      background: white; border-radius: 50%; transition: 0.2s;
+    }
+    .switch input:checked + .slider { background: #4a90e2; }
+    .switch input:checked + .slider:before { transform: translateX(20px); }
+    .skip-switch .switch input:checked + .slider { background: #e07b4a; }
+
+    button[type="submit"] {
+      width: 100%; padding: 16px;
+      background: #4a90e2; color: white;
+      border: none; border-radius: 12px;
+      font-size: 17px; font-weight: 600;
+      cursor: pointer; margin-top: 8px;
+      transition: background 0.15s;
+    }
+    button[type="submit"]:active { opacity: 0.85; }
+    .saved-msg { text-align: center; color: #4caf50; font-size: 14px; margin-top: 12px; }
+
+    /* 在床/離床コンパクトインジケータ */
+    .bed-badge {
+      display: flex; align-items: center; justify-content: center;
+      padding: 8px 12px; border-radius: 8px;
+      font-size: 13px; font-weight: 600;
+      margin-bottom: 20px;
+    }
+    .bed-badge.in-bed { background: #d4edda; color: #155724; }
+    .bed-badge.out-bed { background: #f8d7da; color: #721c24; }
+    .bed-badge.unknown { background: #e9ecef; color: #6c757d; }
+
+    /* 詳細設定へのリンク */
+    .settings-link {
+      display: block;
+      text-align: center;
+      margin-top: 12px;
+      color: #4a90e2;
+      text-decoration: none;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+<div style="width: 100%; max-width: 400px;">
+
+  <div class="card">
+    <h1>⏰ GentleWake</h1>
+
+    <div id="bed-indicator" class="bed-badge unknown">取得中...</div>
+
+    <form method="post" action="/save">
+
+      <div class="section">
+        <label class="section-label">起床時刻</label>
+        <input type="time"
+               id="top-time"
+               class="top-time display-mode"
+               value="{{ (next_alarm.strftime('%H:%M') if next_alarm else '') }}"
+               readonly>
+        <div id="time-caption" class="time-caption">
+          {% if next_alarm %}次のアラーム: {{ next_alarm_label }}{% else %}
+            {% if not config.enabled %}アラーム無効{% else %}有効な曜日がありません{% endif %}
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="section">
+        <label class="section-label">曜日</label>
+        <div class="days">
+          {% for day in day_names %}
+          {% set entry = config.schedule[day] %}
+          <input type="checkbox" name="day_{{ day }}_enabled"
+                 id="cb_enabled_{{ day }}"
+                 style="display:none"
+                 {% if entry.enabled %}checked{% endif %}>
+          <input type="hidden" name="day_{{ day }}_time"
+                 id="hidden_time_{{ day }}"
+                 value="{{ entry.time }}">
+          <button type="button"
+                  class="day-chip {% if entry.enabled %}on{% endif %}"
+                  data-day="{{ day }}">{{ day }}</button>
+          {% endfor %}
+        </div>
+        <div class="day-hint">曜日を長押しするとその曜日の時刻を変更できます</div>
+      </div>
+
+      <div class="section">
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">アラーム有効</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" name="enabled"
+                   {% if config.enabled %}checked{% endif %}>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row skip-switch">
+          <div>
+            <div class="toggle-label">今日はスキップ</div>
+            <div class="toggle-sub">翌日に自動解除されます</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" name="skip_today"
+                   {% if config.skip_today %}checked{% endif %}>
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <button type="submit">設定を保存</button>
+      {% if saved %}
+      <div class="saved-msg">✓ 保存しました</div>
+      {% endif %}
+    </form>
+
+    <a href="/settings" class="settings-link">⚙️ 詳細設定 (閾値・センサ・テスト)</a>
+  </div>
+
+</div>
+
+<script>
+  const DAY_NAMES = {{ day_names | tojson }};
+  const chips = {};
+  const enabledInputs = {};
+  const timeInputs = {};
+  DAY_NAMES.forEach(d => {
+    chips[d] = document.querySelector(`.day-chip[data-day="${d}"]`);
+    enabledInputs[d] = document.getElementById(`cb_enabled_${d}`);
+    timeInputs[d] = document.getElementById(`hidden_time_${d}`);
+  });
+
+  const topTime = document.getElementById('top-time');
+  const timeCaption = document.getElementById('time-caption');
+  const initialDisplayValue = topTime.value;
+  const initialCaptionHTML = timeCaption.innerHTML;
+
+  let editingDay = null;
+  const LONG_PRESS_MS = 500;
+
+  function enterDisplayMode() {
+    editingDay = null;
+    topTime.value = initialDisplayValue;
+    topTime.readOnly = true;
+    topTime.classList.remove('edit-mode');
+    topTime.classList.add('display-mode');
+    timeCaption.innerHTML = initialCaptionHTML;
+    timeCaption.classList.remove('editing');
+    Object.values(chips).forEach(c => c.classList.remove('editing'));
+  }
+
+  function enterEditMode(day) {
+    editingDay = day;
+    topTime.value = timeInputs[day].value;
+    topTime.readOnly = false;
+    topTime.classList.remove('display-mode');
+    topTime.classList.add('edit-mode');
+    timeCaption.innerHTML = `<b>${day}</b> の時刻を変更中 <button type="button" class="done-btn" id="edit-done-btn">完了</button>`;
+    timeCaption.classList.add('editing');
+    Object.values(chips).forEach(c => c.classList.remove('editing'));
+    chips[day].classList.add('editing');
+    document.getElementById('edit-done-btn').addEventListener('click', enterDisplayMode);
+    // モバイル: フォーカスして time picker を出す
+    setTimeout(() => topTime.focus(), 30);
+  }
+
+  topTime.addEventListener('input', () => {
+    if (editingDay) {
+      timeInputs[editingDay].value = topTime.value;
+    }
+  });
+
+  function toggleDay(day) {
+    const cb = enabledInputs[day];
+    cb.checked = !cb.checked;
+    chips[day].classList.toggle('on', cb.checked);
+  }
+
+  // 長押し = 時刻編集モード、短タップ = on/off 切替
+  DAY_NAMES.forEach(day => {
+    const chip = chips[day];
+    let pressTimer = null;
+    let longPressed = false;
+
+    function start(e) {
+      longPressed = false;
+      chip.classList.add('pressing');
+      pressTimer = setTimeout(() => {
+        pressTimer = null;
+        longPressed = true;
+        chip.classList.remove('pressing');
+        enterEditMode(day);
+      }, LONG_PRESS_MS);
+    }
+    function end() {
+      chip.classList.remove('pressing');
+      if (pressTimer !== null) {
+        clearTimeout(pressTimer);
+        pressTimer = null;
+        // short tap
+        toggleDay(day);
+      }
+    }
+    function cancel() {
+      chip.classList.remove('pressing');
+      if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+    }
+
+    chip.addEventListener('pointerdown', start);
+    chip.addEventListener('pointerup', end);
+    chip.addEventListener('pointercancel', cancel);
+    chip.addEventListener('pointerleave', cancel);
+  });
+
+  // 在床状態ポーリング (コンパクト表示)
+  async function refreshBedState() {
+    try {
+      const r = await fetch('/state');
+      const s = await r.json();
+      const indicator = document.getElementById('bed-indicator');
+      if (!s.available) {
+        indicator.className = 'bed-badge unknown';
+        indicator.textContent = '⚠️ センサ未接続 (モック)';
+      } else if (s.raw === null) {
+        indicator.className = 'bed-badge unknown';
+        indicator.textContent = '取得中...';
+      } else if (s.in_bed) {
+        indicator.className = 'bed-badge in-bed';
+        indicator.textContent = '🛏️ 在床中';
+      } else {
+        indicator.className = 'bed-badge out-bed';
+        indicator.textContent = '🚶 離床中';
+      }
+    } catch (e) { /* 通信失敗はスキップ */ }
+  }
+  refreshBedState();
+  setInterval(refreshBedState, 2000);
+</script>
+
+</body>
+</html>
