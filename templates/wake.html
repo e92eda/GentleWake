@@ -231,6 +231,29 @@
       </div>
 
       <div class="section">
+        <label class="section-label">1回限り (日時指定)</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="date" name="one_shot_date"
+                 value="{{ config.one_shot.date if config.one_shot else '' }}"
+                 style="flex: 1; padding: 10px; font-size: 15px; border: 2px solid #e0e0e0; border-radius: 8px; outline: none; background: white; color: #1a1a2e;">
+          <input type="time" name="one_shot_time"
+                 value="{{ config.one_shot.time if config.one_shot else '' }}"
+                 style="flex: 1; padding: 10px; font-size: 15px; border: 2px solid #e0e0e0; border-radius: 8px; outline: none; background: white; color: #1a1a2e;">
+        </div>
+        <div class="toggle-row" style="margin-top: 8px;">
+          <div>
+            <div class="toggle-label">1回だけ鳴らす</div>
+            <div class="toggle-sub">鳴った後は自動でOFFになります</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" name="one_shot_enabled"
+                   {% if config.one_shot and config.one_shot.enabled %}checked{% endif %}>
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="section">
         <div class="toggle-row">
           <div>
             <div class="toggle-label">アラーム有効</div>
@@ -381,6 +404,25 @@
   }
   refreshBedState();
   setInterval(refreshBedState, 2000);
+
+  // 1回限り: 空欄の場合は現在日時をデフォルトにセット
+  (function() {
+    const dateInput = document.querySelector('input[name="one_shot_date"]');
+    const timeInput = document.querySelector('input[name="one_shot_time"]');
+    if (!dateInput.value) {
+      const now = new Date();
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const dd = String(now.getDate()).padStart(2, '0');
+      dateInput.value = `${yyyy}-${mm}-${dd}`;
+    }
+    if (!timeInput.value) {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mi = String(now.getMinutes()).padStart(2, '0');
+      timeInput.value = `${hh}:${mi}`;
+    }
+  })();
 </script>
 
 </body>

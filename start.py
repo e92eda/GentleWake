@@ -32,6 +32,9 @@ _alarm_active = False
 _alarm_started_at = None
 _alarm_was_in_bed = False
 
+LED_CANDIDATE_PATHS = ["/sys/class/leds/ACT", "/sys/class/leds/led0"]
+HEARTBEAT_INTERVAL_S = 1.0
+
 
 def _migrate_schedule(cfg: dict) -> dict:
     """旧 alarm_time + days から新 schedule 形式へ移行、欠けている曜日を埋める。
@@ -54,6 +57,12 @@ def _migrate_schedule(cfg: dict) -> dict:
             else:
                 entry.setdefault("enabled", False)
                 entry.setdefault("time", "07:00")
+    if not isinstance(cfg.get("one_shot"), dict):
+        cfg["one_shot"] = {"enabled": False, "date": "", "time": ""}
+    else:
+        cfg["one_shot"].setdefault("enabled", False)
+        cfg["one_shot"].setdefault("date", "")
+        cfg["one_shot"].setdefault("time", "")
     return cfg
 
 
@@ -69,12 +78,26 @@ def save_config(config):
         json.dump(config, f, ensure_ascii=False, indent=2)
 
 
+def _one_shot_datetime(config):
+    one_shot = config.get("one_shot", {})
+    if not one_shot.get("enabled"):
+        return None
+    try:
+        y, mo, d = map(int, one_shot.get("date", "").split("-"))
+        h, mi = map(int, one_shot.get("time", "").split(":"))
+        return datetime.datetime(y, mo, d, h, mi)
+    except (ValueError, AttributeError):
+        return None
+
+
 def compute_next_alarm(config, now=None):
     """次にアラームが鳴る予定の datetime を返す。無ければ None。"""
     if not config.get("enabled"):
         return None
     if now is None:
         now = datetime.datetime.now()
+
+    weekly_next = None
     schedule = config.get("schedule", {})
     for offset in range(0, 8):
         candidate_date = now.date() + datetime.timedelta(days=offset)
@@ -92,8 +115,15 @@ def compute_next_alarm(config, now=None):
                 continue
             if config.get("skip_today"):
                 continue
-        return candidate_dt
-    return None
+        weekly_next = candidate_dt
+        break
+
+    one_shot_dt = _one_shot_datetime(config)
+    if one_shot_dt is not None and one_shot_dt <= now:
+        one_shot_dt = None
+
+    candidates = [d for d in (weekly_next, one_shot_dt) if d is not None]
+    return min(candidates) if candidates else None
 
 
 def _render_index(config, saved):
@@ -152,6 +182,11 @@ def save():
     config["schedule"] = schedule
     config["skip_today"] = "skip_today" in request.form
     config["enabled"] = "enabled" in request.form
+    config["one_shot"] = {
+        "enabled": "one_shot_enabled" in request.form,
+        "date": request.form.get("one_shot_date", ""),
+        "time": request.form.get("one_shot_time", ""),
+    }
     save_config(config)
     speak_async(_summarize_config(config))
     return _render_index(config, saved=True)
@@ -246,25 +281,77 @@ DAY_EN = {"月": "Mon", "火": "Tue", "水": "Wed", "木": "Thu",
           "金": "Fri", "土": "Sat", "日": "Sun"}
 
 
+MONTH_EN = ["January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"]
+
+
 def _summarize_config(config: dict) -> str:
     if not config.get("enabled"):
         return "Alarm disabled"
     active = [(d, e["time"]) for d, e in config.get("schedule", {}).items() if e.get("enabled")]
-    if not active:
-        return "No days enabled"
     parts = []
-    times = {t for _, t in active}
-    if len(times) == 1:
-        time_str = next(iter(times))
-        hour, _, minute = time_str.partition(":")
-        parts.append(f"Alarm set to {int(hour)}:{minute}")
-        day_names = [DAY_EN[d] for d, _ in active if d in DAY_EN]
-        parts.append("on " + ", ".join(day_names))
-    else:
-        parts.append("Per day alarm schedule updated")
+    if active:
+        times = {t for _, t in active}
+        if len(times) == 1:
+            time_str = next(iter(times))
+            hour, _, minute = time_str.partition(":")
+            parts.append(f"Alarm set to {int(hour)}:{minute}")
+            day_names = [DAY_EN[d] for d, _ in active if d in DAY_EN]
+            parts.append("on " + ", ".join(day_names))
+        else:
+            parts.append("Per day alarm schedule updated")
     if config.get("skip_today"):
         parts.append("skipping today")
-    return ", ".join(parts)
+    one_shot = config.get("one_shot", {})
+    if one_shot.get("enabled") and one_shot.get("date") and one_shot.get("time"):
+        try:
+            y, mo, d = map(int, one_shot["date"].split("-"))
+            h, mi = map(int, one_shot["time"].split(":"))
+            parts.append(f"One time alarm on {MONTH_EN[mo - 1]} {d} at {h}:{mi:02d}")
+        except (ValueError, IndexError):
+            pass
+    return ", ".join(parts) if parts else "No days enabled"
+
+
+def _find_led_dir():
+    for p in LED_CANDIDATE_PATHS:
+        if os.path.isdir(p):
+            return p
+    return None
+
+
+def _write_sysfs(path: str, value: str) -> bool:
+    try:
+        with open(path, "w") as f:
+            f.write(value)
+        return True
+    except Exception as e:
+        print(f"[heartbeat] {path} 書込み失敗: {e}")
+        return False
+
+
+def heartbeat_loop():
+    """オンボードACT LEDを1秒間隔で点滅させ、プロセスが生きていることを示す。"""
+    led_dir = _find_led_dir()
+    if not led_dir:
+        print("[heartbeat] LED sysfs が見つからないためスキップ")
+        return
+    trigger_path = os.path.join(led_dir, "trigger")
+    brightness_path = os.path.join(led_dir, "brightness")
+    if not _write_sysfs(trigger_path, "none"):
+        return
+    state = 0
+    while True:
+        _write_sysfs(brightness_path, "1" if state else "0")
+        state ^= 1
+        time.sleep(HEARTBEAT_INTERVAL_S)
+
+
+def restore_led_trigger():
+    led_dir = _find_led_dir()
+    if not led_dir:
+        return
+    _write_sysfs(os.path.join(led_dir, "trigger"), "mmc0")
 
 
 def alarm_watchdog_loop():
@@ -289,6 +376,14 @@ def alarm_watchdog_loop():
         time.sleep(ALARM_WATCHDOG_INTERVAL_S)
 
 
+def _consume_one_shot(config, fire: bool):
+    """1回限りアラームを消費 (enabled=false にして保存)。fire=True なら発動も。"""
+    config["one_shot"]["enabled"] = False
+    save_config(config)
+    if fire:
+        trigger_alarm()
+
+
 def alarm_loop():
     global last_fired_date, last_skipped_date
     while True:
@@ -297,6 +392,20 @@ def alarm_loop():
             now = datetime.datetime.now()
             today = now.strftime("%Y-%m-%d")
             current_time = now.strftime("%H:%M")
+
+            if config.get("enabled"):
+                one_shot = config.get("one_shot", {})
+                if (one_shot.get("enabled")
+                        and one_shot.get("date") == today
+                        and one_shot.get("time") == current_time):
+                    if sensor.is_in_bed():
+                        print(f"[{current_time}] 1回限りアラーム発動 (在床確認)")
+                        _consume_one_shot(config, fire=True)
+                    else:
+                        print(f"[{current_time}] 1回限りアラーム: 離床中で自動OFF")
+                        _consume_one_shot(config, fire=False)
+                    config = load_config()
+
             day_name = DAY_NAMES[now.weekday()]
             entry = config.get("schedule", {}).get(day_name, {})
 
@@ -327,6 +436,7 @@ if __name__ == "__main__":
     sensor.start()
     threading.Thread(target=alarm_loop, daemon=True).start()
     threading.Thread(target=alarm_watchdog_loop, daemon=True).start()
+    threading.Thread(target=heartbeat_loop, daemon=True).start()
 
     def _delayed_startup_speak():
         time.sleep(30)
@@ -338,3 +448,4 @@ if __name__ == "__main__":
         app.run(host="0.0.0.0", port=port, debug=False)
     finally:
         sensor.stop()
+        restore_led_trigger()
