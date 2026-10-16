@@ -119,6 +119,26 @@ PORT=8080 /home/kunieda/GentleWake/.venv/bin/python /home/kunieda/GentleWake/wak
 
 ---
 
+## デプロイ手順 (Mac → Pi への反映)
+
+Mac側で変更したらコミット・pushし、Pi側でpull＆再起動する。
+
+```bash
+# Mac側
+git add <変更ファイル>
+git commit -m "変更内容"
+git push
+
+# Pi側
+ssh kunieda@zero.local
+cd ~/GentleWake && git pull
+sudo systemctl restart gentlewake
+```
+
+反映確認: `sudo systemctl status gentlewake` でActiveになっていればOK。
+
+---
+
 ## トラブルシューティング
 
 | 症状 | 主な原因 | 見るべきログ |
