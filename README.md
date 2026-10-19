@@ -57,7 +57,7 @@
 
 | ファイル | 説明 |
 |---|---|
-| `wake.py` | **現行エントリーポイント** (Flask + Sensor + アラームループ)。曜日ごとに時刻を持つ新スキーマに対応 |
+| `start.py` | **現行エントリーポイント** (Flask + Sensor + アラームループ)。曜日ごとに時刻を持つ新スキーマに対応 |
 | `web.py` | 旧エントリーポイント (単一 `alarm_time` + `days[]` の旧仕様)。並存していて systemd の切替で戻せる |
 | `sensor.py` | HX711 ドライバ + `SensorMonitor` (バックグラウンドスレッドで在床判定) |
 | `alexa_remote_control.sh` | Echo に "speak" / "textcommand" を送るシェルスクリプト (外部由来) |
@@ -75,7 +75,7 @@
 
 | ファイル | 説明 |
 |---|---|
-| `gentlewake.service` | systemd サービス定義 (`ExecStart` を `wake.py` / `web.py` で差し替える) |
+| `gentlewake.service` | systemd サービス定義 (`ExecStart` を `start.py` / `web.py` で差し替える) |
 | `watchdog.sh` | 5 分毎の自己監視 (CPU/温度/svc状態/センサ値を journal 記録) |
 | `requirements.txt` | Python 依存 |
 
@@ -95,25 +95,25 @@
 
 ---
 
-## 動作モード切替 (wake.py ↔ web.py)
+## 動作モード切替 (start.py ↔ web.py)
 
 新版を試す・戻す:
 
 ```bash
-# 新版 (wake.py) に切替
+# 新版 (start.py) に切替
 sudo systemctl stop gentlewake
-sudo sed -i 's|web\.py|wake.py|' /etc/systemd/system/gentlewake.service
+sudo sed -i 's|web\.py|start.py|' /etc/systemd/system/gentlewake.service
 sudo systemctl daemon-reload && sudo systemctl start gentlewake
 
 # 旧版 (web.py) に戻す
-sudo sed -i 's|wake\.py|web.py|' /etc/systemd/system/gentlewake.service
+sudo sed -i 's|start\.py|web.py|' /etc/systemd/system/gentlewake.service
 sudo systemctl daemon-reload && sudo systemctl restart gentlewake
 ```
 
 対話実行して確かめたい時は 80 番を避ける:
 
 ```bash
-PORT=8080 /home/kunieda/GentleWake/.venv/bin/python /home/kunieda/GentleWake/wake.py
+PORT=8080 /home/kunieda/GentleWake/.venv/bin/python /home/kunieda/GentleWake/start.py
 # ブラウザで http://zero.local:8080/
 ```
 
