@@ -132,6 +132,11 @@ git push
 # Pi側
 ssh kunieda@zero.local
 cd ~/GentleWake && git pull
+
+# gentlewake.service を変更した場合はコピーして daemon-reload
+sudo cp gentlewake.service /etc/systemd/system/gentlewake.service
+sudo systemctl daemon-reload
+
 sudo systemctl restart gentlewake
 ```
 
