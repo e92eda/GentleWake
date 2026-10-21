@@ -27,10 +27,22 @@ sensor = SensorMonitor(CONFIG_FILE)
 
 ALARM_MAX_MINUTES = 30
 ALARM_WATCHDOG_INTERVAL_S = 2
+REARM_DELAYS = {1: 5 * 60, 2: 10 * 60}   # stage → 荷重検知後の待機秒数
+REARM_EXPIRY_S = 90 * 60                   # 再発動監視のタイムアウト
+ALARM_MUSIC = [
+    "textcommand:Play bolero by Maurice Ravel",
+    "textcommand:Play bolero by Maurice Ravel",
+    "textcommand:Play Ride of the Valkyries by Wagner",
+]
+
 _alarm_lock = threading.Lock()
 _alarm_active = False
 _alarm_started_at = None
 _alarm_was_in_bed = False
+_current_alarm_stage = 0    # 現在再生中のアラームのステージ
+_rearm_stage = 0            # 0=idle, 1=stage1待機中, 2=stage2待機中
+_rearm_in_bed_since = None  # 荷重再検知した時刻
+_rearm_deadline = None      # これを超えたら再発動を中止
 
 LED_CANDIDATE_PATHS = ["/sys/class/leds/ACT", "/sys/class/leds/led0"]
 HEARTBEAT_INTERVAL_S = 1.0
@@ -231,12 +243,13 @@ def stop_alarm():
     return jsonify({"ok": True})
 
 
-def _mark_alarm_started():
-    global _alarm_active, _alarm_started_at, _alarm_was_in_bed
+def _mark_alarm_started(stage=0):
+    global _alarm_active, _alarm_started_at, _alarm_was_in_bed, _current_alarm_stage
     with _alarm_lock:
         _alarm_active = True
         _alarm_started_at = time.time()
         _alarm_was_in_bed = sensor.is_in_bed()
+        _current_alarm_stage = stage
 
 
 def _mark_alarm_stopped():
@@ -247,22 +260,25 @@ def _mark_alarm_stopped():
         _alarm_was_in_bed = False
 
 
-def trigger_alarm():
-    _mark_alarm_started()
-    subprocess.run([
-        ALEXA_SCRIPT,
-        "-d", ALEXA_DEVICE,
-        "-e", "textcommand:Play bolero by Maurice Ravel"
-    ])
+def trigger_alarm(stage=0):
+    _mark_alarm_started(stage)
+    music = ALARM_MUSIC[stage] if stage < len(ALARM_MUSIC) else ALARM_MUSIC[-1]
+    subprocess.run([ALEXA_SCRIPT, "-d", ALEXA_DEVICE, "-e", music])
 
 
-def stop_music():
+def stop_music(rearm=False):
+    global _rearm_stage, _rearm_in_bed_since, _rearm_deadline
+    with _alarm_lock:
+        fired_stage = _current_alarm_stage
     _mark_alarm_stopped()
-    subprocess.run([
-        ALEXA_SCRIPT,
-        "-d", ALEXA_DEVICE,
-        "-e", "textcommand:stop"
-    ])
+    subprocess.run([ALEXA_SCRIPT, "-d", ALEXA_DEVICE, "-e", "textcommand:stop"])
+    if rearm and fired_stage < 2:
+        next_stage = fired_stage + 1
+        with _alarm_lock:
+            _rearm_stage = next_stage
+            _rearm_in_bed_since = None
+            _rearm_deadline = time.time() + REARM_EXPIRY_S
+        print(f"[rearm] stage {next_stage} 監視開始 ({REARM_DELAYS[next_stage] // 60}分後に再発動予定)")
 
 
 def speak_async(text: str):
@@ -355,12 +371,15 @@ def restore_led_trigger():
 
 
 def alarm_watchdog_loop():
+    global _rearm_stage, _rearm_in_bed_since, _rearm_deadline
     while True:
         try:
             with _alarm_lock:
                 active = _alarm_active
                 started_at = _alarm_started_at
                 was_in_bed = _alarm_was_in_bed
+                rearm_stage = _rearm_stage
+
             if active and started_at is not None:
                 elapsed_min = (time.time() - started_at) / 60
                 reason = None
@@ -370,7 +389,41 @@ def alarm_watchdog_loop():
                     reason = "離床検知"
                 if reason:
                     print(f"[watchdog] 自動停止 ({reason})")
-                    stop_music()
+                    stop_music(rearm=(reason == "離床検知"))
+
+            elif not active and rearm_stage > 0:
+                now = time.time()
+                with _alarm_lock:
+                    deadline = _rearm_deadline
+                    stage = _rearm_stage
+                    in_bed_since = _rearm_in_bed_since
+
+                if deadline and now > deadline:
+                    with _alarm_lock:
+                        _rearm_stage = 0
+                        _rearm_in_bed_since = None
+                        _rearm_deadline = None
+                    print("[rearm] タイムアウト、再発動を中止")
+
+                elif sensor.is_in_bed():
+                    if in_bed_since is None:
+                        with _alarm_lock:
+                            _rearm_in_bed_since = now
+                        delay_min = REARM_DELAYS[stage] // 60
+                        print(f"[rearm] 荷重検知 (stage {stage})、{delay_min}分後に再発動予定")
+                    elif now - in_bed_since >= REARM_DELAYS.get(stage, 10 * 60):
+                        with _alarm_lock:
+                            _rearm_stage = 0
+                            _rearm_in_bed_since = None
+                            _rearm_deadline = None
+                        print(f"[rearm] stage {stage} 発動")
+                        threading.Thread(target=trigger_alarm, args=(stage,), daemon=True).start()
+                else:
+                    with _alarm_lock:
+                        if _rearm_in_bed_since is not None:
+                            _rearm_in_bed_since = None
+                            print("[rearm] 離床、荷重タイマーリセット")
+
         except Exception as e:
             print(f"watchdog エラー: {e}")
         time.sleep(ALARM_WATCHDOG_INTERVAL_S)
